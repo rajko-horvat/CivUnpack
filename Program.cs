@@ -40,19 +40,19 @@ internal class Program
 		byte[] buffer2 = oMemory2.Blocks[3].Data;
 		int iLength1 = buffer1.Length;
 		int iLength2 = buffer1.Length;
-		uint uiLastEmptyByte = (uint)(iLength1 - 1);
+		uint uiLastEmptyByte = 0x652d; // As defined by EXE startup code; (uint)(iLength1 - 1);
 
 		if (iLength1 != iLength2)
 			throw new Exception("Blocks are of different size");
 
-		for (int i = iLength1 - 1; i >= 0; i--)
+		/*for (int i = iLength1 - 1; i >= 0; i--)
 		{
 			if (buffer1[i] != 0 || buffer2[i] != 0)
 			{
 				uiLastEmptyByte = (uint)(i + 1);
 				break;
 			}
-		}
+		}*/
 
 		Console.WriteLine("Last empty byte in the last block: 0x{0:x8}", uiLastEmptyByte);
 		MemoryRegion.AlignBlock(ref uiLastEmptyByte); // we want this to be aligned
