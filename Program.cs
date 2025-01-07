@@ -1,21 +1,37 @@
-﻿using Disassembler;
-using Disassembler.CPU;
-using Disassembler.MZ;
+﻿using Disassembler.MZ;
 
 internal class Program
 {
 	private static void Main(string[] args)
 	{
-		if (File.Exists("civ.exe"))
+		Console.WriteLine($"CivUnpack version 1.1 (DOS Civilization (1991) EXE Unpacker) by R. Horvat");
+
+		//UnpackDOSEXE("CIV1.EXE", "CIV1.NEW"); // OK
+		//UnpackDOSEXE("CIV2.EXE", "CIV2.NEW"); // OK
+		//UnpackDOSEXE("CIV3.EXE", "CIV3.NEW"); // OK
+		//UnpackDOSEXE("CIV4.EXE", "CIV4.NEW"); // OK
+		//UnpackDOSEXE("CIV5.EXE", "CIV5.NEW"); // OK
+
+		if (File.Exists("CIV.EXE"))
 		{
-			if (!File.Exists("civ.bak"))
+			if (!File.Exists("CIV.bak"))
 			{
-				File.Move("civ.exe", "civ.bak");
-				UnpackDOSEXE("civ.bak");
+				MZExecutable newEXE = new MZExecutable("CIV.EXE");
+
+				// actually unpack the EXE
+				UnpackEXE(newEXE);
+
+				// make backup of the old file
+				File.Move("CIV.EXE", "CIV.bak");
+				
+				// write new unpacked EXE
+				newEXE.Write("CIV.EXE");
+
+				Console.WriteLine("CIV.EXE successfully unpacked");
 			}
 			else
 			{
-				Console.WriteLine("Will not overwrite civ.bak");
+				Console.WriteLine("Will not overwrite CIV.bak");
 			}
 		}
 		else
@@ -24,513 +40,196 @@ internal class Program
 		}
 	}
 
-	private static void UnpackDOSEXE(string path)
+	private static void UnpackDOSEXE(string inputPath, string outputPath)
 	{
-		MZExecutable mzEXE = new MZExecutable(path);
-		ushort usSegment1 = 0x5409;
-		ushort usSegment2 = 0x1234;
+		MZExecutable newEXE = new MZExecutable(inputPath);
 
-		CPURegisters oRegisters1 = new CPURegisters();
-		Memory oMemory1 = UnpackEXE(mzEXE, usSegment1, oRegisters1);
+		// actually unpack the EXE
+		UnpackEXE(newEXE);
 
-		CPURegisters oRegisters2 = new CPURegisters();
-		Memory oMemory2 = UnpackEXE(mzEXE, usSegment2, oRegisters2);
-
-		byte[] buffer1 = oMemory1.Blocks[3].Data;
-		byte[] buffer2 = oMemory2.Blocks[3].Data;
-		int iLength1 = buffer1.Length;
-		int iLength2 = buffer1.Length;
-		uint uiLastEmptyByte = 0x652d; // As defined by EXE startup code; (uint)(iLength1 - 1);
-
-		if (iLength1 != iLength2)
-			throw new Exception("Blocks are of different size");
-
-		/*for (int i = iLength1 - 1; i >= 0; i--)
-		{
-			if (buffer1[i] != 0 || buffer2[i] != 0)
-			{
-				uiLastEmptyByte = (uint)(i + 1);
-				break;
-			}
-		}*/
-
-		Console.WriteLine("Last empty byte in the last block: 0x{0:x8}", uiLastEmptyByte);
-		MemoryRegion.AlignBlock(ref uiLastEmptyByte); // we want this to be aligned
-
-		Console.WriteLine("Joining the blocks");
-		iLength1 = oMemory1.Blocks[2].Data.Length;
-		iLength2 = (int)(oMemory2.Blocks[2].Data.Length + uiLastEmptyByte);
-		oMemory1.Blocks[2].Resize(iLength2);
-		oMemory2.Blocks[2].Resize(iLength2);
-
-		Array.Copy(oMemory1.Blocks[3].Data, 0, oMemory1.Blocks[2].Data, iLength1, uiLastEmptyByte);
-		oMemory1.Blocks.RemoveAt(3);
-		Array.Copy(oMemory2.Blocks[3].Data, 0, oMemory2.Blocks[2].Data, iLength1, uiLastEmptyByte);
-		oMemory2.Blocks.RemoveAt(3);
-
-		buffer1 = oMemory1.Blocks[2].Data;
-		buffer2 = oMemory2.Blocks[2].Data;
-
-		// decrease minimum allocation by additional size that was added to EXE
-		mzEXE.MinimumAllocation -= (ushort)(uiLastEmptyByte >> 4);
-
-		CompareBlocksAndReconstructEXE(mzEXE, buffer1, buffer2, usSegment1, usSegment2);
-		mzEXE.InitialSS = (ushort)(oRegisters1.SS.Word - usSegment1);
-		mzEXE.InitialSP = oRegisters1.SP.Word;
-		mzEXE.InitialIP = oRegisters1.IP.Word;
-		mzEXE.InitialCS = (ushort)(oRegisters1.CS.Word - usSegment1); // - 0x10; // account for PSP (0x10)
-
-		Console.WriteLine("Block validation passed");
-
-		// write new EXE
-
-		mzEXE.WriteToFile("civ.exe");
+		// write new unpacked EXE
+		newEXE.Write(outputPath);
 	}
 
-	private static void CompareBlocksAndReconstructEXE(MZExecutable exe, byte[] block1, byte[] block2, ushort segment1, ushort segment2)
+	private static void UnpackEXE(MZExecutable exe)
 	{
-		if (block1.Length != block2.Length)
+		int MZEXELength = exe.Data.Length;
+
+		if ((MZEXELength & 0xf) != 0)
 		{
-			Console.WriteLine("Block 1 length is not equal to Block 2 length");
-			return;
+			MZEXELength += (16 - (MZEXELength & 0xf));
+		}
+		MZEXELength >>= 4;
+
+		int baseAddress = exe.InitialCS * 16;
+		ushort newIP = ReadUInt16(exe.Data, baseAddress + 0x0);
+		ushort newCS = ReadUInt16(exe.Data, baseAddress + 0x2);
+		ushort packerSize = ReadUInt16(exe.Data, baseAddress + 0x6);
+		ushort newSP = ReadUInt16(exe.Data, baseAddress + 0x8);
+		ushort newSS = ReadUInt16(exe.Data, baseAddress + 0xa);
+		ushort packerCS = ReadUInt16(exe.Data, baseAddress + 0xc);
+
+		int checkPackerAddress = baseAddress + exe.InitialIP;
+
+		if (exe.Data[checkPackerAddress++] != 0x8C && exe.Data[checkPackerAddress++] != 0xC0 && 
+			exe.Data[checkPackerAddress++] != 0x05 && exe.Data[checkPackerAddress++] != 0x10 && 
+			exe.Data[checkPackerAddress++] != 0x00 && exe.Data[checkPackerAddress++] != 0x0E && 
+			exe.Data[checkPackerAddress++] != 0x1F && exe.Data[checkPackerAddress++] != 0xA3 && 
+			exe.Data[checkPackerAddress++] != 0x04 && exe.Data[checkPackerAddress++] != 0x00 && 
+			exe.Data[checkPackerAddress++] != 0x03 && exe.Data[checkPackerAddress++] != 0x06 && 
+			exe.Data[checkPackerAddress++] != 0x0C && exe.Data[checkPackerAddress++] != 0x00 && 
+			exe.Data[checkPackerAddress++] != 0x8E && exe.Data[checkPackerAddress++] != 0xC0 && 
+			exe.Data[checkPackerAddress++] != 0x8B && exe.Data[checkPackerAddress++] != 0x0E && 
+			exe.Data[checkPackerAddress++] != 0x06 && exe.Data[checkPackerAddress++] != 0x00 && 
+			exe.Data[checkPackerAddress++] != 0x8B && exe.Data[checkPackerAddress++] != 0xF9 && 
+			exe.Data[checkPackerAddress++] != 0x4F && exe.Data[checkPackerAddress++] != 0x8B && 
+			exe.Data[checkPackerAddress++] != 0xF7 && exe.Data[checkPackerAddress++] != 0xFD && 
+			exe.Data[checkPackerAddress++] != 0xF3 && exe.Data[checkPackerAddress++] != 0xA4 && 
+			exe.Data[checkPackerAddress++] != 0x50 && exe.Data[checkPackerAddress++] != 0xB8 && 
+			exe.Data[checkPackerAddress++] != 0x32 && exe.Data[checkPackerAddress++] != 0x00 && 
+			exe.Data[checkPackerAddress++] != 0x50 && exe.Data[checkPackerAddress++] != 0xCB)
+		{
+			throw new Exception("The file is missing proper unpack header");
 		}
 
-		// also, reconstruct relocation items
-		int iSegment = 0;
-		int iOffset = 0;
+		#region Decode relocation table
+
+		int currentTablePosition = (exe.InitialCS << 4) + 0x125;
 
 		exe.Relocations.Clear();
-		
-		// we are comparing words
-		for (int i = 0; i < block1.Length; i++)
-		{
-			if (block1[i] != block2[i])
-			{
-				if (block1[i + 1] != block2[i + 1])
-				{
-					// compare absolute offsets, not relative ones
-					ushort usWord1 = (ushort)((ushort)block1[i] | (ushort)((ushort)block1[i + 1] << 8));
-					usWord1 -= segment1;
-					//usWord1 -= 0x10; // account for PSP (0x10)
-					ushort usWord2 = (ushort)((ushort)block2[i] | (ushort)((ushort)block2[i + 1] << 8));
-					usWord2 -= segment2;
-					//usWord2 -= 0x10; // account for PSP (0x10)
 
-					if (usWord1 != usWord2)
-					{
-						Console.WriteLine("Segment 0x{0:x4} not equal to 0x{1:x4} at 0x{2:x4}", usWord1, usWord2, i);
-					}
-					block1[i] = (byte)(usWord1 & 0xff);
-					block1[i + 1] = (byte)((usWord1 & 0xff00) >> 8);
-					block2[i] = (byte)(usWord2 & 0xff);
-					block2[i + 1] = (byte)((usWord2 & 0xff00) >> 8);
-					exe.Relocations.Add(new MZRelocationItem((ushort)iSegment, (ushort)iOffset));
-					iOffset++;
-					i++;
-				}
-				else
-				{
-					Console.WriteLine("Block 1 word is not equal in size to Block 2 at 0x{0:x4}", i);
-					return;
-				}
-			}
-			iOffset++;
-			if (iOffset > 0xffff)
+		for (int i = 0; i < 16; i++)
+		{
+			int tableEntryCount = ReadUInt16(exe.Data, currentTablePosition);
+			currentTablePosition += 2;
+
+			for (int j = 0; j < tableEntryCount; j++)
 			{
-				iSegment += 0x1000;
-				iOffset -= 0x10000;
+				exe.Relocations.Add(new MZRelocationItem((ushort)(i << 12), ReadUInt16(exe.Data, currentTablePosition)));
+				currentTablePosition += 2;
 			}
 		}
+		#endregion
 
-		exe.Data = new byte[block1.Length];
-		Array.Copy(block1, exe.Data, block1.Length);
-	}
+		#region Decode data
 
-	private static Memory UnpackEXE(MZExecutable exe, ushort startSegment, CPURegisters r)
-	{
-		Memory oMemory = new Memory();
-		ushort usPSPSegment;
-		ushort usMZSegment;
-		ushort usDataSegment;
-		uint uiMZEXELength = (uint)exe.Data.Length;
-		MemoryRegion.AlignBlock(ref uiMZEXELength);
+		// resize destination array to the required size
+		byte[] dataBuffer = exe.Data;
+		Array.Resize<byte>(ref dataBuffer, packerCS << 4);
+		exe.Data = dataBuffer;
 
-		if (startSegment < 0x10)
-			throw new Exception("starting segment must be greater than 0x10");
+		int sourceAddress = ((exe.InitialCS - 1) << 4) + 0xf;
+		int destinationAddress = ((packerCS - 1) << 4) + 0xf;
 
-		// blank start segment
-		oMemory.AllocateParagraphs((ushort)(startSegment - 0x10), out usPSPSegment);
-		oMemory.MemoryRegions.Add(new MemoryRegion(0, (startSegment - 0x10) << 4, MemoryFlagsEnum.None));
-
-		// PSP segment
-		oMemory.AllocateParagraphs(0x10, out usPSPSegment);
-		oMemory.MemoryRegions.Add(new MemoryRegion(usPSPSegment, 0x100, MemoryFlagsEnum.None));
-
-		// EXE segment
-		oMemory.AllocateBlock((int)uiMZEXELength, out usMZSegment);
-		oMemory.WriteBlock(usMZSegment, 0, exe.Data, 0, exe.Data.Length);
-
-		// data segment
-		oMemory.AllocateParagraphs((ushort)exe.MinimumAllocation, out usDataSegment);
-
-		// decode EXE packer
-		r.SP.Word = (ushort)exe.InitialSP;
-		r.DS.Word = usPSPSegment;
-		r.ES.Word = usPSPSegment;
-		r.SS.Word = (ushort)(exe.InitialSS + usMZSegment);
-		r.CS.Word = (ushort)(exe.InitialCS + usMZSegment);
-		bool bDFlag = false;
-
-		// Decoding phase 1
-
-		// 2b0d:0010	mov ax, es
-		r.AX.Word = r.ES.Word;
-		// 2b0d:0012	add ax, 10h
-		r.AX.Word += 0x10;
-		// 2b0d:0015	push cs; pop ds
-		r.DS.Word = r.CS.Word;
-		// 2b0d:0017	mov word_2B0D_4, ax
-		oMemory.WriteWord(r.DS.Word, 0x4, r.AX.Word);
-		// 2b0d:001A	add     ax, word_2B0D_C
-		r.AX.Word += oMemory.ReadWord(r.DS.Word, 0xc);
-		// 2b0d:001E	mov es, ax
-		r.ES.Word = r.AX.Word;
-		// 2b0d:0020	mov cx, word_2B0D_6
-		r.CX.Word = oMemory.ReadWord(r.DS.Word, 0x6);
-		// 2b0d:0024	mov di, cx
-		r.DI.Word = r.CX.Word;
-		// 2b0d:0026	dec di
-		r.DI.Word--;
-		// 2b0d:0027	mov si, di
-		r.SI.Word = r.DI.Word;
-		// 2b0d:0029	std
-		bDFlag = true;
-		// 2b0d:002A	rep movsb
-		while (r.CX.Word != 0)
+		for (int i = 0; i < 16; i++)
 		{
-			oMemory.WriteByte(r.ES.Word, r.DI.Word, oMemory.ReadByte(r.DS.Word, r.SI.Word));
-			if (bDFlag)
-			{
-				r.DI.Word--;
-				r.SI.Word--;
-			}
-			else
-			{
-				r.DI.Word++;
-				r.SI.Word++;
-			}
-			r.CX.Word--;
-		}
-		// 2b0d:002C	push    ax
-		// 2b0d:002D	mov ax, 32h; push ax
-		// 2b0d:0031	retf
+			byte value = exe.Data[sourceAddress];
+			sourceAddress--;
 
-		//oMemory.WriteWord(r.SS.Word, (ushort)(r.SP.Word - 2), r.AX.Word);
-		//oMemory.WriteWord(r.SS.Word, (ushort)(r.SP.Word - 4), 0x32);
-		r.CS.Word = r.AX.Word;
-		r.IP.Word = 0x32;
-
-		//oMemory.MemoryRegions.Add(new MemoryRegion(r.AX.Word, 0x32, 0x10f - 0x32, MemoryFlagsEnum.Read));
-		//Console.WriteLine("Protecting block at 0x{0:x8}, size 0x{1:x4}", MemoryRegion.ToAbsolute(r.AX.Word, 0x32), 0x10f - 0x32);
-
-		// Decoding phase 2
-
-		// CS:IP = AX:0x32
-
-		// 0x0032	MOV BX, ES
-		r.BX.Word = r.ES.Word;
-		// 0x0034	MOV AX, DS
-		r.AX.Word = r.DS.Word;
-		// 0x0036	DEC AX
-		r.AX.Word--;
-		// 0x0037	MOV DS, AX
-		r.DS.Word = r.AX.Word;
-		// 0x0039	MOV ES, AX
-		r.ES.Word = r.AX.Word;
-		// 0x003b	MOV DI, 0xf
-		r.DI.Word = 0xf;
-		// 0x003e	MOV CX, 0x10
-		r.CX.Word = 0x10;
-		// 0x0041	MOV AL, 0xff
-		r.AX.Low = 0xff;
-		// 0x0043	REPE SCASB
-		while (r.CX.Word != 0)
-		{
-			byte res = (byte)(((int)r.AX.Low - (int)oMemory.ReadByte(r.ES.Word, r.DI.Word)) & 0xff);
-			if (bDFlag)
-			{
-				r.DI.Word--;
-			}
-			else
-			{
-				r.DI.Word++;
-			}
-			r.CX.Word--;
-
-			if (res != 0)
+			if (value != 0xff)
 				break;
 		}
-		// 0x0045	INC DI
-		r.DI.Word++;
-		// 0x0046	MOV SI, DI
-		r.SI.Word = r.DI.Word;
-		// 0x0048	MOV AX, BX
-		r.AX.Word = r.BX.Word;
-		// 0x004a	DEC AX
-		r.AX.Word--;
-		// 0x004b	MOV ES, AX
-		r.ES.Word = r.AX.Word;
-		// 0x004d	MOV DI, 0xf
-		r.DI.Word = 0xf;
+		sourceAddress++;
 
-		l50:
-		// 0x0050	MOV CL, 0x4
-		r.CX.Low = 0x4;
-		// 0x0052	MOV AX, SI
-		r.AX.Word = r.SI.Word;
-		// 0x0054	NOT AX
-		r.AX.Word = (ushort)(~r.AX.Word);
-		// 0x0056	SHR AX, CL
-		r.AX.Word = (ushort)(r.AX.Word >> r.CX.Low);
-		// 0x0058	JE + 0x9
-		if (r.AX.Word == 0) goto l63;
-		// 0x005a	MOV DX, DS
-		r.DX.Word = r.DS.Word;
-		// 0x005c	SUB DX, AX
-		r.DX.Word -= r.AX.Word;
-		// 0x005e	MOV DS, DX
-		r.DS.Word = r.DX.Word;
-		// 0x0060	OR SI, 0xfff0
-		r.SI.Word |= 0xfff0;
+		byte blockSignature = 0;
 
-		l63:
-		// 0x0063	MOV AX, DI
-		r.AX.Word = r.DI.Word;
-		// 0x0065	NOT AX
-		r.AX.Word = (ushort)(~r.AX.Word);
-		// 0x0067	SHR AX, CL
-		r.AX.Word = (ushort)(r.AX.Word >> r.CX.Low);
-		// 0x0069	JE + 0x9
-		if (r.AX.Word == 0) goto l74;
-		// 0x006b	MOV DX, ES
-		r.DX.Word = r.ES.Word;
-		// 0x006d	SUB DX, AX
-		r.DX.Word -= r.AX.Word;
-		// 0x006f	MOV ES, DX
-		r.ES.Word = r.DX.Word;
-		// 0x0071	OR DI, 0xfff0
-		r.DI.Word |= 0xfff0;
+		while ((blockSignature & 1) == 0)
+		{
+			blockSignature = exe.Data[sourceAddress];
+			sourceAddress -= 2;
 
-		l74:
-		// 0x0074	LODSB
-		r.AX.Low = oMemory.ReadByte(r.DS.Word, r.SI.Word);
-		if (bDFlag)
-		{
-			r.SI.Word--;
-		}
-		else
-		{
-			r.SI.Word++;
-		}
-		// 0x0075	MOV DL, AL
-		r.DX.Low = r.AX.Low;
-		// 0x0077	DEC SI
-		r.SI.Word--;
-		// 0x0078	LODSW
-		r.AX.Word = oMemory.ReadWord(r.DS.Word, r.SI.Word);
-		if (bDFlag)
-		{
-			r.SI.Word -= 2;
-		}
-		else
-		{
-			r.SI.Word += 2;
-		}
-		// 0x0079	MOV CX, AX
-		r.CX.Word = r.AX.Word;
-		// 0x007b	INC SI
-		r.SI.Word++;
-		// 0x007c	MOV AL, DL
-		r.AX.Low = r.DX.Low;
-		// 0x007e	AND AL, 0xfe
-		r.AX.Low &= 0xfe;
-		// 0x0080	CMP AL, 0xb0
-		// 0x0082	JNE + 0x6
-		if (r.AX.Low != 0xb0) goto l8a;
-		// 0x0084	LODSB
-		r.AX.Low = oMemory.ReadByte(r.DS.Word, r.SI.Word);
-		if (bDFlag)
-		{
-			r.SI.Word--;
-		}
-		else
-		{
-			r.SI.Word++;
-		}
-		// 0x0085	REPE STOSB
-		while (r.CX.Word != 0)
-		{
-			oMemory.WriteByte(r.ES.Word, r.DI.Word, r.AX.Low);
-			if (bDFlag)
+			int blockSize = ReadUInt16(exe.Data, sourceAddress);
+			sourceAddress -= 2;
+
+			sourceAddress++;
+
+			if ((blockSignature & 0xfe) == 0xb0)
 			{
-				r.DI.Word--;
+				byte blockValue = exe.Data[sourceAddress];
+				sourceAddress--;
+
+				while (blockSize != 0)
+				{
+					exe.Data[destinationAddress] = blockValue;
+					destinationAddress--;
+					blockSize--;
+				}
+			}
+			else if ((blockSignature & 0xfe) == 0xb2)
+			{
+				while (blockSize != 0)
+				{
+					exe.Data[destinationAddress] = exe.Data[sourceAddress];
+					destinationAddress--;
+					sourceAddress--;
+					blockSize--;
+				}
 			}
 			else
 			{
-				r.DI.Word++;
+				throw new Exception("Encoded data is corrupted");
 			}
-			r.CX.Word--;
 		}
-		// 0x0087	JMP + 0x7
-		goto l90;
-		// 0x0089	NOP
+		#endregion
 
-		l8a:
-		// 0x008a	CMP AL, 0xb2
-		// 0x008c	JNE + 0x6b
-		if (r.AX.Low != 0xb2) goto lf9;
-		// 0x008e	REPE MOVSB
-		while (r.CX.Word != 0)
+		// Extract the new data and stack segment to adjust the program size
+		// We don't actuall need this, it decreases the EXE file slightly, but compiler put these paddings for a reason
+
+		/*baseAddress = newCS * 16;
+		ushort newDS = ReadUInt16(exe.Data, baseAddress + newIP + 0x2);
+
+		if (ReadUInt16(exe.Data, baseAddress + newIP + 0x4f) == 0x14 &&
+			exe.Data[baseAddress + 0x7b] == 0x16 && exe.Data[baseAddress + 0x7c] == 0x7 &&
+			exe.Data[baseAddress + 0x7d] == 0xfc && exe.Data[baseAddress + 0x7e] == 0xbf)
 		{
-			oMemory.WriteByte(r.ES.Word, r.DI.Word, oMemory.ReadByte(r.DS.Word, r.SI.Word));
-			if (bDFlag)
-			{
-				r.DI.Word--;
-				r.SI.Word--;
-			}
-			else
-			{
-				r.DI.Word++;
-				r.SI.Word++;
-			}
-			r.CX.Word--;
-		}
+			// we have the correct offset
+			ushort cutoffOffset = ReadUInt16(exe.Data, baseAddress + 0x7f);
+			int cutoffAddress = (newDS << 4) + cutoffOffset;
 
-		l90:
-		// 0x0090	MOV AL, DL
-		r.AX.Low = r.DX.Low;
-		// 0x0092	TEST AL, 0x1
-		// 0x0094	JE - 0x46
-		if ((r.AX.Low & 1) == 0) goto l50;
-		// 0x0096	MOV SI, 0x125
-		r.SI.Word = 0x125;
-		// 0x0099	PUSH CS
-		// 0x009a	POP DS
-		r.DS.Word = r.CS.Word;
-		// 0x009b	MOV BX, [0x4]
-		r.BX.Word = oMemory.ReadWord(r.DS.Word, 0x4);
-		// 0x009f	CLD
-		bDFlag = false;
-		// 0x00a0	XOR DX, DX
-		r.DX.Word = 0;
+			if ((cutoffOffset & 0xf) != 0)
+			{
+				cutoffAddress += 16 - (cutoffOffset & 0xf);
+			}
 
-		la2:
-		// 0x00a2	LODSW
-		r.AX.Word = oMemory.ReadWord(r.DS.Word, r.SI.Word);
-		if (bDFlag)
-		{
-			r.SI.Word -= 2;
+			if (cutoffAddress != exe.Data.Length)
+			{
+				dataBuffer = exe.Data;
+				Array.Resize<byte>(ref dataBuffer, cutoffAddress);
+				exe.Data = dataBuffer;
+			}
+
+			exe.MinimumAllocation = (ushort)(exe.MinimumAllocation + (MZEXELength - (exe.Data.Length >> 4)));
 		}
 		else
 		{
-			r.SI.Word += 2;
-		}
-		// 0x00a3	MOV CX, AX
-		r.CX.Word = r.AX.Word;
-		// 0x00a5	JCXZ + 0x13
-		if (r.CX.Word == 0) goto lba;
-		// 0x00a7	MOV AX, DX
-		r.AX.Word = r.DX.Word;
-		// 0x00a9	ADD AX, BX
-		r.AX.Word += r.BX.Word;
-		// 0x00ab	MOV ES, AX
-		r.ES.Word = r.AX.Word;
+			throw new Exception("File encoded data is corrupted");
+		}*/
 
-		lad:
-		// 0x00ad	LODSW
-		r.AX.Word = oMemory.ReadWord(r.DS.Word, r.SI.Word);
-		if (bDFlag)
+		exe.MinimumAllocation = (ushort)(exe.MinimumAllocation + (MZEXELength - (exe.Data.Length >> 4)));
+		exe.InitialCS = newCS;
+		exe.InitialIP = newIP;
+		exe.InitialSP = newSP;
+		exe.InitialSS = newSS;
+
+		// remove leftovers from an old relocation table(s)
+		exe.AdditionalHeaderDataAfterRelocationTable = new byte[0];
+
+		for (int i = 0; i < exe.Overlays.Count; i++)
 		{
-			r.SI.Word -= 2;
+			MZExecutable overlay = exe.Overlays[i];
+
+			overlay.AdditionalHeaderDataAfterRelocationTable = new byte[0];
 		}
-		else
-		{
-			r.SI.Word += 2;
-		}
-		// 0x00ae	MOV DI, AX
-		r.DI.Word = r.AX.Word;
-		// 0x00b0	CMP DI, 0xffff
-		// 0x00b3	JE + 0x11
-		if (r.DI.Word == 0xffff) goto lc6;
-		// 0x00b5	ADD ES:[DI], BX
-		oMemory.WriteWord(r.ES.Word, r.DI.Word, (ushort)(oMemory.ReadWord(r.ES.Word, r.DI.Word) + r.BX.Word));
+	}
 
-		lb8:
-		// 0x00b8	LOOP - 0xd
-		r.CX.Word--;
-		if (r.CX.Word != 0) goto lad;
+	public static ushort ReadUInt16(byte[] buffer, int position)
+	{
+		return (ushort)((int)buffer[position] | ((int)buffer[position + 1] << 8));
+	}
 
-		lba:
-		// 0x00ba	CMP DX, 0xf000
-		// 0x00be	JE + 0x16
-		if (r.DX.Word == 0xf000) goto ld6;
-		// 0x00c0	ADD DX, 0x1000
-		r.DX.Word += 0x1000;
-		// 0x00c4	JMP - 0x24
-		goto la2;
-
-		lc6:
-		// 0x00c6	MOV AX, ES
-		r.AX.Word = r.ES.Word;
-		// 0x00c8	INC AX
-		r.AX.Word++;
-		// 0x00c9	MOV ES, AX
-		r.ES.Word = r.AX.Word;
-		// 0x00cb	SUB DI, 0x10
-		r.DI.Word -= 0x10;
-		// 0x00ce	ADD ES:[DI], BX
-		oMemory.WriteWord(r.ES.Word, r.DI.Word, (ushort)(oMemory.ReadWord(r.ES.Word, r.DI.Word) + r.BX.Word));
-		// 0x00d1	DEC AX
-		r.AX.Word--;
-		// 0x00d2	MOV ES, AX
-		r.ES.Word = r.AX.Word;
-		// 0x00d4	JMP - 0x1e
-		goto lb8;
-
-		ld6:
-		// 0x00d6	MOV AX, BX
-		r.AX.Word = r.BX.Word;
-		// 0x00d8	MOV DI, [0x8]
-		r.DI.Word = oMemory.ReadWord(r.DS.Word, 0x8);
-		// 0x00dc	MOV SI, [0xa]
-		r.SI.Word = oMemory.ReadWord(r.DS.Word, 0xa);
-		// 0x00e0	ADD SI, AX
-		r.SI.Word += r.AX.Word;
-		// 0x00e2	ADD [0x2], AX
-		oMemory.WriteWord(r.DS.Word, 0x2, (ushort)(oMemory.ReadWord(r.DS.Word, 0x2) + r.AX.Word));
-		// 0x00e6	SUB AX, 0x10
-		r.AX.Word -= 0x10;
-		// 0x00e9	MOV DS, AX
-		r.DS.Word = r.AX.Word;
-		// 0x00eb	MOV ES, AX
-		r.ES.Word = r.AX.Word;
-		// 0x00ed	MOV BX, 0x0
-		r.BX.Word = 0;
-		// 0x00f0	CLI
-		// 0x00f1	MOV SS, SI
-		r.SS.Word = r.SI.Word;
-		// 0x00f3	MOV SP, DI
-		r.SP.Word = r.DI.Word;
-		// 0x00f5	STI
-		// 0x00f6	JMP far CS:[BX]
-		r.IP.Word = oMemory.ReadWord(r.CS.Word, r.BX.Word);
-		r.CS.Word = oMemory.ReadWord(r.CS.Word, (ushort)(r.BX.Word + 2));
-		goto finished;
-
-		lf9:
-		throw new Exception("Error decoding file");
-
-		finished:
-		return oMemory;
+	public static void WriteUInt16(byte[] buffer, int position, ushort value)
+	{
+		buffer[position] = (byte)(value & 0xff);
+		buffer[position + 1] = (byte)((value & 0xff00) >> 8);
 	}
 }

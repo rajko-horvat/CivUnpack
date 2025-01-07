@@ -2,10 +2,21 @@
 
   <PropertyGroup>
     <OutputType>Exe</OutputType>
-    <TargetFramework>net6.0</TargetFramework>
+    <TargetFramework>net8.0</TargetFramework>
     <ImplicitUsings>enable</ImplicitUsings>
     <Nullable>enable</Nullable>
-    <Title>Civilization 1 unpacker</Title>
+    <Title>DOS Civilization (1991) EXE Unpacker</Title>
+	<Version>1.1</Version>
+	<Copyright>Copyright (c) 2023-2025 by Rajko Horvat</Copyright>
+	<PackageProjectUrl>https://github.com/rajko-horvat/CivUnpack</PackageProjectUrl>
+	<RepositoryUrl>https://github.com/rajko-horvat/CivUnpack</RepositoryUrl>
+	<RepositoryType>git</RepositoryType>
+	<PackageTags>game;retro;remake;civilization;retrogaming;4x-strategy-game;4x;retro-game;civilization-games;sid-meier-civilization;remake-games</PackageTags>
+	<NeutralLanguage>en</NeutralLanguage>
+	<PackageLicenseFile>LICENSE</PackageLicenseFile>
+	<ProduceReferenceAssembly>False</ProduceReferenceAssembly>
+	<WarningsAsErrors>nullable</WarningsAsErrors>
+	<Authors>Rajko Horvat</Authors>
   </PropertyGroup>
 
 </Project>
