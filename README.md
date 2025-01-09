@@ -2,8 +2,8 @@
 <p>Unpacks DOS version of Civilization (1991) (all versions work).</p>
 <p>Download the latest version from <a href="https://github.com/rajko-horvat/CivUnpack/releases" target="_blank">Releases page</a>. 
 Extract the zip archive into directory with CIV.EXE and run CivUnpack.</p>
-<p>The backup will be created as CIV.bak and unpacked version will be written as CIV.EXE
-The old CIV.bak is not needed to run the game, as all EXE overlays are preserved.</p>
+<p>The backup will be created as CIV.bak and unpacked version will be written as CIV.EXE</p>
+<p>The old CIV.bak is not needed to run the game, as all EXE overlays are preserved.</p>
 
 ## Dependencies
 <ul>
