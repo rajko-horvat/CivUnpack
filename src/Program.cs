@@ -1,4 +1,4 @@
-﻿using Disassembler.MZ;
+﻿using IRB.VirtualCPU;
 
 internal class Program
 {
@@ -6,11 +6,11 @@ internal class Program
 	{
 		Console.WriteLine($"CivUnpack version 1.1 (DOS Civilization (1991) EXE Unpacker) by R. Horvat");
 
-		//UnpackDOSEXE("CIV1.EXE", "CIV1.NEW"); // OK
-		//UnpackDOSEXE("CIV2.EXE", "CIV2.NEW"); // OK
-		//UnpackDOSEXE("CIV3.EXE", "CIV3.NEW"); // OK
-		//UnpackDOSEXE("CIV4.EXE", "CIV4.NEW"); // OK
-		//UnpackDOSEXE("CIV5.EXE", "CIV5.NEW"); // OK
+		/*UnpackDOSEXE("CIV1.EXE", "CIV1_NEW.EXE"); // OK
+		UnpackDOSEXE("CIV2.EXE", "CIV2_NEW.EXE"); // OK
+		UnpackDOSEXE("CIV3.EXE", "CIV3_NEW.EXE"); // OK
+		UnpackDOSEXE("CIV4.EXE", "CIV4_NEW.EXE"); // OK
+		UnpackDOSEXE("CIV5.EXE", "CIV5_NEW.EXE"); // OK //*/
 
 		if (File.Exists("CIV.EXE"))
 		{
@@ -37,7 +37,7 @@ internal class Program
 		else
 		{
 			Console.WriteLine("CIV.EXE does not exist. Put CivUnpack.exe in a directory with CIV.EXE and run it.");
-		}
+		}//*/
 	}
 
 	private static void UnpackDOSEXE(string inputPath, string outputPath)

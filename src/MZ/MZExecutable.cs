@@ -1,6 +1,4 @@
-﻿using System.Runtime.CompilerServices;
-
-namespace Disassembler.MZ
+﻿namespace IRB.VirtualCPU
 {
 	public class MZExecutable
 	{
