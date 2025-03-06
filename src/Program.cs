@@ -4,13 +4,15 @@ internal class Program
 {
 	private static void Main(string[] args)
 	{
-		Console.WriteLine($"CivUnpack version 1.1 (DOS Civilization (1991) EXE Unpacker) by R. Horvat");
+		Console.WriteLine($"CivUnpack version 1.2 (DOS Civilization (1991) EXE Unpacker) by R. Horvat");
 
 		/*UnpackDOSEXE("CIV1.EXE", "CIV1_NEW.EXE"); // OK
 		UnpackDOSEXE("CIV2.EXE", "CIV2_NEW.EXE"); // OK
 		UnpackDOSEXE("CIV3.EXE", "CIV3_NEW.EXE"); // OK
 		UnpackDOSEXE("CIV4.EXE", "CIV4_NEW.EXE"); // OK
 		UnpackDOSEXE("CIV5.EXE", "CIV5_NEW.EXE"); // OK //*/
+
+		//UnpackDOSEXE("CL.EXE", "CL_NEW.EXE");
 
 		if (File.Exists("CIV.EXE"))
 		{
@@ -68,6 +70,20 @@ internal class Program
 		ushort newSP = ReadUInt16(exe.Data, baseAddress + 0x8);
 		ushort newSS = ReadUInt16(exe.Data, baseAddress + 0xa);
 		ushort packerCS = ReadUInt16(exe.Data, baseAddress + 0xc);
+		int currentTablePosition;
+
+		if (exe.Data[baseAddress + 0x96] == 0xbe)
+		{
+			currentTablePosition = (exe.InitialCS << 4) + ReadUInt16(exe.Data, baseAddress + 0x97);
+		}
+		else if (exe.Data[baseAddress + 0x9e] == 0xbe)
+		{
+			currentTablePosition = (exe.InitialCS << 4) + ReadUInt16(exe.Data, baseAddress + 0x9f);
+		}
+		else
+		{
+			throw new Exception("Can't find relocation table address");
+		}
 
 		int checkPackerAddress = baseAddress + exe.InitialIP;
 
@@ -93,8 +109,6 @@ internal class Program
 		}
 
 		#region Decode relocation table
-
-		int currentTablePosition = (exe.InitialCS << 4) + 0x125;
 
 		exe.Relocations.Clear();
 

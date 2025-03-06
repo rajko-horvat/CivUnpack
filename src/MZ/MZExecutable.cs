@@ -76,9 +76,9 @@
 			// It can be any value, as the loader just uses it to find where the actual executable data starts.
 			// It may be larger than what the "standard" fields take up, and you may use it if you want to include
 			// your own header metadata, or put the relocation table there, or use it for any other purpose.)
-			int headerSize = ReadUInt16(stream);
+			int headerLength = ReadUInt16(stream);
 			// header size is less than 2 paragraphs
-			if (headerSize < 0x2)
+			if (headerLength < 0x2)
 			{
 				throw new Exception("The MS-DOS executable file header has invalid size");
 			}
@@ -122,7 +122,7 @@
 				}
 			}
 
-			int additionalHeaderDataSizeAfterRelocationTable = headerSize * 16;
+			int additionalHeaderDataSizeAfterRelocationTable = headerLength * 16;
 
 			if (relocationItems > 0)
 			{
@@ -159,8 +159,8 @@
 			}
 
 			// read data
-			int dataSize = (extraBytes > 0) ? (((pages - 1) * 512) + extraBytes) - (headerSize * 16) : (pages * 512) - (headerSize * 16);
-			stream.Seek(position + (headerSize * 16), SeekOrigin.Begin);
+			int dataSize = (extraBytes > 0) ? ((pages * 512) - (512 - extraBytes)) - (headerLength * 16) : (pages * 512) - (headerLength * 16);
+			stream.Seek(position + (headerLength * 16), SeekOrigin.Begin);
 
 			exe.MZData = new byte[dataSize];
 			stream.Read(exe.MZData, 0, dataSize);
@@ -171,11 +171,11 @@
 		public void Write(string path)
 		{
 			FileStream writer = new FileStream(path, FileMode.Create);
-			this.Write(writer);
+			this.Write(writer, this.overlays.Count > 0);
 			writer.Close();
 		}
 
-		public void Write(Stream stream)
+		public void Write(Stream stream, bool padOverlay)
 		{
 			MemoryStream writer = new MemoryStream();
 
@@ -240,17 +240,24 @@
 			// write data
 			writer.Write(this.MZData, 0, this.MZData.Length);
 
-			// append to full 512 byte page
-			int appendData = (ushort)(512 - extraBytes);
-			for (int i = 0; i < appendData; i++)
+			// for overlays to work we have to pad the contents to 512 byte boundary, except the last overlay block
+			if (padOverlay)
 			{
-				writer.WriteByte(0);
+				// append to full 512 byte page
+				int appendData = (ushort)(512 - extraBytes);
+				for (int i = 0; i < appendData; i++)
+				{
+					writer.WriteByte(0);
+				}
+				writer.Flush();
 			}
-			writer.Flush();
 
 			// calculate checksum
+			int checksumBlockSize = (extraBytes > 0) ? ((pages * 512) - (512 - extraBytes)) : (pages * 512);
+
 			writer.Seek(0, SeekOrigin.Begin);
-			for (int i = 0; i < pages * 512; i += 2)
+
+			for (int i = 0; i < checksumBlockSize; i += 2)
 			{
 				checksum = (ushort)((checksum + ReadUInt16(writer)) & 0xffff);
 			}
@@ -266,7 +273,7 @@
 				for (int i = 0; i < this.overlays.Count; i++)
 				{
 					MemoryStream overlayWriter = new MemoryStream();
-					this.overlays[i].Write(overlayWriter);
+					this.overlays[i].Write(overlayWriter, i < this.overlays.Count - 1);
 
 					byte[] overlayBuffer = overlayWriter.ToArray();
 					writer.Write(overlayBuffer, 0, overlayBuffer.Length);
@@ -286,11 +293,27 @@
 			for (int i = 0; i < this.relocations.Count; i++)
 			{
 				MZRelocationItem relocation = this.relocations[i];
-				uint uiAddress = (uint)(relocation.Segment * 16 + relocation.Offset);
+				uint uiAddress = (uint)(((uint)relocation.Segment << 4) + relocation.Offset);
 				ushort usWord1 = (ushort)((ushort)this.MZData[uiAddress] | (ushort)((ushort)this.MZData[uiAddress + 1] << 8));
 				usWord1 += segment;
 				this.MZData[uiAddress] = (byte)(usWord1 & 0xff);
 				this.MZData[uiAddress + 1] = (byte)((usWord1 & 0xff00) >> 8);
+			}
+
+			for (int i = 0; i < this.overlays.Count; i++)
+			{
+				MZExecutable overlay = this.overlays[i];
+
+				for (int j = 0; j < overlay.Relocations.Count; j++)
+				{
+					MZRelocationItem relocation = overlay.Relocations[j];
+					uint uiAddress = relocation.Offset;
+					ushort usWord1 = (ushort)((ushort)overlay.Data[uiAddress] | (ushort)((ushort)overlay.Data[uiAddress + 1] << 8));
+					//usWord1 += relocation.Segment;
+					usWord1 += segment;
+					overlay.Data[uiAddress] = (byte)(usWord1 & 0xff);
+					overlay.Data[uiAddress + 1] = (byte)((usWord1 & 0xff00) >> 8);
+				}
 			}
 		}
 
