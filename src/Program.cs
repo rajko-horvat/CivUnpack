@@ -12,8 +12,6 @@ internal class Program
 		UnpackDOSEXE("CIV4.EXE", "CIV4_NEW.EXE"); // OK
 		UnpackDOSEXE("CIV5.EXE", "CIV5_NEW.EXE"); // OK //*/
 
-		//UnpackDOSEXE("CL.EXE", "CL_NEW.EXE");
-
 		if (File.Exists("CIV.EXE"))
 		{
 			if (!File.Exists("CIV.bak"))
